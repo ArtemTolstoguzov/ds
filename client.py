@@ -1,56 +1,14 @@
-import os
 import socket
 import json
-from message import Protocol
+from hashlib import sha256
+from message import Protocol, Message
+from keys import *
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+
 
 SERVER = ('localhost', 5001)
-
-
-def generate_keys():
-    os.makedirs('./keys')
-
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-        backend=default_backend()
-    )
-    public_key = private_key.public_key()
-
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
-    )
-    with open('./keys/private_key.pem', 'wb') as f:
-        f.write(pem)
-
-    pem = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-
-    with open('./keys/public_key.pem', 'wb') as f:
-        f.write(pem)
-
-
-def read_keys():
-    with open("./keys/private_key.pem", "rb") as key_file:
-        private_key = serialization.load_pem_private_key(
-            key_file.read(),
-            password=None,
-            backend=default_backend()
-        )
-
-    with open("./keys/public_key.pem", "rb") as key_file:
-        public_key = serialization.load_pem_public_key(
-            key_file.read(),
-            backend=default_backend()
-        )
-
-    return private_key, public_key
 
 
 class Client:
@@ -65,16 +23,68 @@ class Client:
         self.sock.bind(('localhost', 5002))
         self.clients = []
 
+    def send_to_server(self, proto):
+        self.sock.sendto(proto.to_bytes(), SERVER)
+
+    def receive_from_server(self):
+        pass
+
     def get_clients(self):
         if len(self.clients) == 0:
-            self.sock.sendto(
-                Protocol(self.public_key_pem, 'get_clients').to_bytes(),
-                SERVER
-            )
+            request = Protocol(self.public_key_pem, 'get_clients')
+            self.send_to_server(request)
+
             data, _ = self.sock.recvfrom(4096)
             self.clients = json.loads(bytes.decode(data))
 
         return self.clients
+
+    def send_message(self, message, to_public_key_pem):
+        to_public_key = serialization.load_pem_public_key(to_public_key_pem, backend=default_backend())
+
+        encrypted_message = to_public_key.encrypt(
+            message,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+
+        request = Protocol(
+            self.public_key_pem,
+            'send_message',
+            message=encrypted_message,
+            salt=self.compute_salt(encrypted_message),
+            to=to_public_key_pem
+        )
+        self.send_to_server(request)
+
+    def get_messages(self):
+        request = Protocol(
+            self.public_key_pem,
+            'get_messages'
+        )
+        self.send_to_server(request)
+
+        data, _ = self.sock.recvfrom(4096)
+        messages = map(lambda o: Message(o['message'], o['sender']), json.loads(bytes.decode(data)))
+        decrypted_messages = map(lambda m: (self.private_key.decrypt(
+            m.message,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        ), m.sender), messages)
+
+        return list(decrypted_messages)
+
+    def compute_salt(self, encrypted_message):
+        salt = 0
+        while sha256(f'{encrypted_message}{salt}'.encode()).hexdigest()[:5] != "00000":
+            salt += 1
+        return salt
 
 
 def start():
