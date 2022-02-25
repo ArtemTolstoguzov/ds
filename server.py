@@ -20,7 +20,7 @@ class Server:
 
             self.register_client(request.public_key)
 
-            print('client addr: ', addr, request)
+            print('client addr: ', addr, request.command)
             response = None
             if request.command == 'get_clients':
                 response = list(self.clients)
@@ -40,6 +40,7 @@ class Server:
 
     def get_messages(self, request):
          #todo отдаем список сообщений по request.public_key
+        pass
 
     def register_client(self, public_key):
         self.clients.add(public_key)

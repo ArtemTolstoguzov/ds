@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 
 
 SERVER = ('localhost', 5001)
+CLIENT = ('localhost', 5002)
 
 
 class Client:
@@ -20,7 +21,7 @@ class Client:
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ))
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('localhost', 5002))
+        self.sock.bind(CLIENT)
         self.clients = []
 
     def send_to_server(self, proto):
@@ -87,7 +88,7 @@ class Client:
         return salt
 
 
-def start():
+def cli_run():
     if not os.path.exists('./keys'):
         generate_keys()
 
@@ -96,10 +97,29 @@ def start():
 
     while True:
         for i, c in enumerate(client.get_clients()):
-            print(i, c)
+            print(f'{i}: {c[27:91]}')
 
-        cmd = input()
+        print('sm [i] - send message, i - recipient number')
+        print('gs - receive messages')
+
+        cmd = input().split()
+
+        if cmd[0] == 'sm':
+            to_public_key_pem = client.clients[int(cmd[1])]
+            print(f'Recipient: {to_public_key_pem[27:91]}')
+            print('Message:')
+            message = input()
+            print('POW-process...')
+            client.send_message(message, to_public_key_pem)
+            print('Message sent!')
+        elif cmd[1] == 'gs':
+            messages = client.get_messages()
+            for message in messages:
+                print(f'Sender: {message[1][27:91]}')
+                print('Message:')
+                print(message[0])
+                print('-----------------------')
 
 
 if __name__ == '__main__':
-    start()
+    cli_run()
