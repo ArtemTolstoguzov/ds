@@ -1,5 +1,6 @@
 from socket import *
 import json
+import collections
 from hashlib import sha256
 from message import Protocol, Message
 
@@ -12,6 +13,7 @@ class Server:
         self.clients = set()
         self.sock = socket(AF_INET, SOCK_DGRAM)
         self.sock.bind(SERVER)
+        self.messages = defaultdict(list)
 
     def run(self):
         while True:
@@ -34,13 +36,13 @@ class Server:
 
     def save_message(self, request):
         if sha256(f'{request.message}{request.salt}'.encode()).hexdigest()[:5] != "00000":
-            return #хэш не совпал
-         #todo сохраняем сообщеньку
+            return #хэш не совпал, соль не та
 
+        self.messages[request.to].append((request.message, request.public_key))
 
     def get_messages(self, request):
-         #todo отдаем список сообщений по request.public_key
-        pass
+         return list(map(lambda m: Message(m[0], m[1]), self.messages[request.public_key]))
+
 
     def register_client(self, public_key):
         self.clients.add(public_key)
