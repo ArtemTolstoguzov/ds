@@ -1,5 +1,6 @@
 import socket
 import json
+import sys
 from hashlib import sha256
 from message import Protocol, Message
 from keys import *
@@ -9,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 
 
 SERVER = ('localhost', 5001)
-CLIENT = ('localhost', 5002)
+CLIENT = ('localhost', int(sys.argv[1]))
 
 
 class Client:
@@ -31,26 +32,25 @@ class Client:
         pass
 
     def get_clients(self):
-        if len(self.clients) == 0:
-            request = Protocol(self.public_key_pem, 'get_clients')
-            self.send_to_server(request)
+        request = Protocol(self.public_key_pem, 'get_clients')
+        self.send_to_server(request)
 
-            data, _ = self.sock.recvfrom(4096)
-            self.clients = json.loads(bytes.decode(data))
+        data, _ = self.sock.recvfrom(4096)
+        self.clients = list(filter(lambda c: c != self.public_key_pem, json.loads(bytes.decode(data))))
 
         return self.clients
 
     def send_message(self, message, to_public_key_pem):
-        to_public_key = serialization.load_pem_public_key(to_public_key_pem, backend=default_backend())
+        to_public_key = serialization.load_pem_public_key(str.encode(to_public_key_pem), backend=default_backend())
 
-        encrypted_message = to_public_key.encrypt(
-            message,
+        encrypted_message = bytes.decode(to_public_key.encrypt(
+            str.encode(message),
             padding.OAEP(
                 mgf=padding.MGF1(algorithm=hashes.SHA256()),
                 algorithm=hashes.SHA256(),
                 label=None
             )
-        )
+        ))
 
         request = Protocol(
             self.public_key_pem,
@@ -71,7 +71,7 @@ class Client:
         data, _ = self.sock.recvfrom(4096)
         messages = map(lambda o: Message(o['message'], o['sender']), json.loads(bytes.decode(data)))
         decrypted_messages = map(lambda m: (self.private_key.decrypt(
-            m.message,
+            str.encode(m.message),
             padding.OAEP(
                 mgf=padding.MGF1(algorithm=hashes.SHA256()),
                 algorithm=hashes.SHA256(),
@@ -96,15 +96,24 @@ def cli_run():
     client = Client(private_key, public_key)
 
     while True:
+        print('                             CLIENTS')
+        print('-------------------------------------------------------------------')
         for i, c in enumerate(client.get_clients()):
             print(f'{i}: {c[27:91]}')
+        print('-------------------------------------------------------------------')
 
+        print('')
+        print('                             COMMANDS')
+        print('-------------------------------------------------------------------')
         print('sm [i] - send message, i - recipient number')
-        print('gs - receive messages')
+        print('gs     - receive messages')
+        print('-------------------------------------------------------------------')
+        print('')
 
         cmd = input().split()
 
         if cmd[0] == 'sm':
+            print('-------------------------------------------------------------------')
             to_public_key_pem = client.clients[int(cmd[1])]
             print(f'Recipient: {to_public_key_pem[27:91]}')
             print('Message:')
@@ -112,7 +121,8 @@ def cli_run():
             print('POW-process...')
             client.send_message(message, to_public_key_pem)
             print('Message sent!')
-        elif cmd[1] == 'gs':
+        elif cmd[0] == 'gs':
+            print('-------------------------------------------------------------------')
             messages = client.get_messages()
             for message in messages:
                 print(f'Sender: {message[1][27:91]}')

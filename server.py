@@ -13,7 +13,7 @@ class Server:
         self.clients = set()
         self.sock = socket(AF_INET, SOCK_DGRAM)
         self.sock.bind(SERVER)
-        self.messages = defaultdict(list)
+        self.messages = collections.defaultdict(list)
 
     def run(self):
         while True:
