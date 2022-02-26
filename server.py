@@ -1,11 +1,11 @@
-from socket import *
-import json
 import collections
+import json
 from hashlib import sha256
-from message import Protocol, Message
+from socket import *
 
+from message import Message, Protocol
 
-SERVER = ('localhost', 5001)
+SERVER = ("localhost", 5001)
 
 
 class Server:
@@ -22,27 +22,28 @@ class Server:
 
             self.register_client(request.public_key)
 
-            print('client addr: ', addr, request.command)
+            print("client addr: ", addr, request.command)
             response = None
-            if request.command == 'get_clients':
+            if request.command == "get_clients":
                 response = list(self.clients)
-            elif request.command == 'send_message':
+            elif request.command == "send_message":
                 self.save_message(request)
                 return
-            elif request.command == 'get_messages':
+            elif request.command == "get_messages":
                 response = self.get_messages(request)
 
             self.sock.sendto(str.encode(json.dumps(response)), addr)
 
     def save_message(self, request):
-        if sha256(f'{request.message}{request.salt}'.encode()).hexdigest()[:5] != "00000":
-            return #хэш не совпал, соль не та
+        if sha256(f"{request.message}{request.salt}".encode()).hexdigest()[:5] != "00000":
+            return  # хэш не совпал, соль не та
 
         self.messages[request.to].append((request.message, request.public_key))
 
     def get_messages(self, request):
-         return list(map(lambda m: Message(m[0], m[1]), self.messages[request.public_key]))
-
+        return list(
+            map(lambda m: Message(m[0], m[1]), self.messages[request.public_key])
+        )
 
     def register_client(self, public_key):
         self.clients.add(public_key)
@@ -53,5 +54,5 @@ def start():
     server.run()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     start()
