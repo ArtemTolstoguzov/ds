@@ -8,10 +8,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from keys import *
-from message import Message, Protocol
+from message import SendMessageCommand, Protocol, CommandType, EmptyCommand, GetClientsCommand, InteractionType, \
+    GetMessagesCommand
 
 SERVER = ("localhost", 5001)
-CLIENT = ("localhost", int(sys.argv[1]))
+CLIENT = ("localhost", 9000)
 
 
 class Client:
@@ -35,62 +36,70 @@ class Client:
         pass
 
     def get_clients(self):
-        request = Protocol(self.public_key_pem, "get_clients")
+        request = Protocol(
+            CommandType.GET_CLIENTS,
+            GetClientsCommand(InteractionType.REQUEST),
+            self.public_key_pem,
+            12  # TODO
+        )
         self.send_to_server(request)
 
         data, _ = self.sock.recvfrom(4096)
+        response = Protocol.from_bytes(InteractionType.RESPONSE, data)
         self.clients = list(
-            filter(lambda c: c != self.public_key_pem, json.loads(bytes.decode(data)))
+            filter(lambda c: c != self.public_key_pem, response.info.clients)
         )
+        self.clients = list(response.info.clients)
 
         return self.clients
 
-    def send_message(self, message, to_public_key_pem):
-        to_public_key = serialization.load_pem_public_key(
-            str.encode(to_public_key_pem), backend=default_backend()
+    def send_message(self, message: str, recipient_public_key: str):
+        recipient_public_key_pem = serialization.load_pem_public_key(
+            recipient_public_key.encode(), backend=default_backend()
         )
+        enc = message.encode()
 
-        encrypted_message = bytes.decode(
-            to_public_key.encrypt(
-                str.encode(message),
+        encrypted_message = recipient_public_key_pem.encrypt(
+                enc,
                 padding.OAEP(
                     mgf=padding.MGF1(algorithm=hashes.SHA256()),
                     algorithm=hashes.SHA256(),
                     label=None,
                 ),
             )
-        )
 
         request = Protocol(
+            CommandType.SEND_MESSAGE,
+            SendMessageCommand(encrypted_message, recipient_public_key),
             self.public_key_pem,
-            "send_message",
-            message=encrypted_message,
-            salt=self.compute_salt(encrypted_message),
-            to=to_public_key_pem,
+            self.compute_salt(encrypted_message)
         )
         self.send_to_server(request)
 
     def get_messages(self):
-        request = Protocol(self.public_key_pem, "get_messages")
+        request = Protocol(
+            CommandType.GET_MESSAGES,
+            GetMessagesCommand(InteractionType.REQUEST),
+            self.public_key_pem,
+            12  # TODO
+        )
         self.send_to_server(request)
 
         data, _ = self.sock.recvfrom(4096)
-        messages = map(
-            lambda o: Message(o["message"], o["sender"]), json.loads(bytes.decode(data))
-        )
+        response = Protocol.from_bytes(interaction_type=InteractionType.RESPONSE, data_bytes=data)
         decrypted_messages = map(
             lambda m: (
                 self.private_key.decrypt(
-                    str.encode(m.message),
+                    m[0],
                     padding.OAEP(
                         mgf=padding.MGF1(algorithm=hashes.SHA256()),
                         algorithm=hashes.SHA256(),
                         label=None,
                     ),
-                ),
-                m.sender,
+                ).decode(),
+                m[1],
             ),
-            messages,
+            response.info.messages,
         )
 
         return list(decrypted_messages)
@@ -143,6 +152,9 @@ def cli_run():
                 print("Message:")
                 print(message[0])
                 print("-----------------------")
+        elif cmd[0] == "gc":
+            for i, c in enumerate(client.get_clients()):
+                print(f"{i}: {c[27:91]}")
 
 
 if __name__ == "__main__":
