@@ -78,9 +78,11 @@ def get_messages(client: Client):
 
 def cli_run():
     if not os.path.exists("./keys"):
-        generate_keys()
+        os.makedirs("./keys")
+    if not os.path.exists(f"./keys/{PORT}"):
+        generate_keys(str(PORT))
 
-    (private_key, public_key) = read_keys()
+    (private_key, public_key) = read_keys(str(PORT))
     client = Client(private_key, public_key, (SERVER_HOST, SERVER_PORT), PORT)
     print(HELP)
     print_clients(client)
