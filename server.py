@@ -5,7 +5,7 @@ from socket import AF_INET, SOCK_DGRAM, socket
 from message import (CommandType, GetClientsCommand, GetMessagesCommand,
                      InteractionType, Protocol)
 
-SERVER = ("localhost", 5001)
+SERVER = ("0.0.0.0", 5001)
 
 
 class Server:
@@ -16,6 +16,7 @@ class Server:
         self.messages = collections.defaultdict(list)
 
     def run(self):
+        print("Running")
         while True:
             data, addr = self.sock.recvfrom(4096)
             request = Protocol.from_bytes(InteractionType.REQUEST, data)

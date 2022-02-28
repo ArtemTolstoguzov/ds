@@ -3,6 +3,80 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Iterable, Tuple
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+
+
+class Message:
+    author_public_key: None
+    message: bytes
+    verified: bool
+
+    @staticmethod
+    def construct(message: bytes, recipient_public_key, author_private_key) -> bytes:
+        encrypted_message = recipient_public_key.encrypt(
+            message,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+
+        signature = author_private_key.sign(
+            message,
+            padding.PSS(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256(),
+        )
+        signature_len = len(signature)
+        message_len = len(encrypted_message)
+        signed_message = struct.pack(f"!I{signature_len}s{message_len}s", signature_len, signature, encrypted_message)
+        return signed_message
+
+    @classmethod
+    def deconstruct(cls, signed_message: bytes, author_public_key, recipient_private_key) -> 'Message':
+        current_pos = 0
+        signature_len = struct.unpack("!I", signed_message[current_pos: current_pos + 4])[0]
+        current_pos += 4
+        signature = struct.unpack(f"!{signature_len}s", signed_message[current_pos: current_pos + signature_len])[0]
+        current_pos += signature_len
+        encrypted_message = signed_message[current_pos:]
+
+        message = recipient_private_key.decrypt(
+            encrypted_message,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            )
+        )
+
+        try:
+            author_public_key.verify(
+                signature,
+                message,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH,
+                ),
+                hashes.SHA256(),
+            )
+        except InvalidSignature:
+            obj = cls()
+            obj.message = None
+            obj.verified = False
+            return obj
+
+        obj = cls()
+        obj.message = message
+        obj.verified = True
+        obj.author_public_key = author_public_key
+        return obj
+
 
 class InteractionType(Enum):
     REQUEST = 1

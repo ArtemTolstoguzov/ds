@@ -1,0 +1,12 @@
+version: "3"
+
+services:
+  server:
+    container_name: ds-server
+    build: .
+    image: ds-server
+    env_file:
+      - .env
+    ports:
+      - "${SERVER_PORT}:5001/udp"
+    command: bash -c 'python server.py'

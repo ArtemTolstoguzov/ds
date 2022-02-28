@@ -1,20 +1,15 @@
-import sys
 from hashlib import sha256
 from socket import AF_INET, SOCK_DGRAM, socket
 
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import serialization
 
 from message import (CommandType, GetClientsCommand, GetMessagesCommand,
-                     InteractionType, Protocol, SendMessageCommand)
-
-SERVER = ("localhost", 5001)
-CLIENT = ("localhost", int(sys.argv[1]))
+                     InteractionType, Protocol, SendMessageCommand, Message)
 
 
 class Client:
-    def __init__(self, private_key, public_key):
+    def __init__(self, private_key, public_key, server, client_port):
         self.private_key = private_key
         self.public_key = public_key
         self.public_key_pem = bytes.decode(
@@ -24,11 +19,12 @@ class Client:
             )
         )
         self.sock = socket(AF_INET, SOCK_DGRAM)
-        self.sock.bind(CLIENT)
+        self.sock.bind(("localhost", client_port))
         self.clients = []
+        self.server = server
 
     def send_to_server(self, proto):
-        self.sock.sendto(proto.to_bytes(), SERVER)
+        self.sock.sendto(proto.to_bytes(), self.server)
 
     def receive_from_server(self) -> Protocol:
         data, _ = self.sock.recvfrom(4096)
@@ -55,16 +51,7 @@ class Client:
         recipient_public_key_pem = serialization.load_pem_public_key(
             recipient_public_key.encode(), backend=default_backend()
         )
-        enc = message.encode()
-
-        encrypted_message = recipient_public_key_pem.encrypt(
-            enc,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
-        )
+        encrypted_message = Message.construct(message.encode(), recipient_public_key_pem, self.private_key)
 
         request = Protocol(
             CommandType.SEND_MESSAGE,
@@ -84,22 +71,19 @@ class Client:
         self.send_to_server(request)
 
         response = self.receive_from_server()
-        decrypted_messages = map(
-            lambda m: (
-                self.private_key.decrypt(
-                    m[0],
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                        algorithm=hashes.SHA256(),
-                        label=None,
-                    ),
-                ).decode(),
-                m[1],
-            ),
-            response.info.messages,
-        )
 
-        return list(decrypted_messages)
+        messages = []
+        for message, author in response.info.messages:
+            public_key = serialization.load_pem_public_key(author.encode(), default_backend())
+            messages.append(
+                Message.deconstruct(
+                    message,
+                    public_key,
+                    self.private_key,
+                )
+            )
+
+        return messages
 
     def compute_salt(self, encrypted_message):
         salt = 0

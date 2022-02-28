@@ -1,5 +1,8 @@
 import os
+import sys
 from collections import defaultdict
+
+from cryptography.hazmat.primitives import serialization
 
 from client import Client
 from keys import generate_keys, read_keys
@@ -25,6 +28,10 @@ RECIPIENT_STR = """
 -------------------------------------------------------------------
 Recipient: {}
 """
+
+SERVER_HOST, SERVER_PORT = sys.argv[1].split(":")
+SERVER_PORT = int(SERVER_PORT)
+PORT = int(sys.argv[2])
 
 
 def print_clients(client: Client):
@@ -53,8 +60,14 @@ def get_messages(client: Client):
     messages = client.get_messages()
     print(MESSAGES_HEADER)
     messages_repr = defaultdict(list)
-    for message in messages:
-        messages_repr[message[1][27:91]].append(message[0])
+    for message in filter(lambda m: m.verified, messages):
+        public_key_pem = bytes.decode(
+            message.author_public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+        )
+        messages_repr[public_key_pem[27:91]].append(message.message.decode())
     for author, messages in messages_repr.items():
         print(f"Author: {author}")
         print("Messages:")
@@ -68,7 +81,7 @@ def cli_run():
         generate_keys()
 
     (private_key, public_key) = read_keys()
-    client = Client(private_key, public_key)
+    client = Client(private_key, public_key, (SERVER_HOST, SERVER_PORT), PORT)
     print(HELP)
     print_clients(client)
     while True:
